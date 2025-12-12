@@ -10,7 +10,9 @@ import {
 } from 'lucide-react';
 import './index.css';
 
-const API_URL = 'http://localhost:8000/api/analyze-statement';
+const API_URL =
+  import.meta.env.VITE_API_URL || 'http://localhost:8000/api/analyze-statement';
+
 
 const FinancialAssistant = () => {
   const [messages, setMessages] = useState([]);
