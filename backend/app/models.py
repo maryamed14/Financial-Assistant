@@ -37,6 +37,18 @@ class UserProfileUpdate(BaseModel):
     restaurantBaseline: float
 
 
+class Forecast(BaseModel):
+    period_start: str
+    period_end: str
+    elapsed_days: int
+    days_in_month: int
+    spent_so_far: float
+    projected_month_end_spend: float
+    target_spend_limit: float
+    remaining_days: int
+    recommended_spend_per_day: float
+
+
 class AnalysisResult(BaseModel):
     summary: Summary
     categories: List[CategoryItem]
@@ -44,3 +56,4 @@ class AnalysisResult(BaseModel):
     chart: ChartData
     user_profile: UserProfileUpdate
     insights: List[str]
+    forecast: Forecast

@@ -1,4 +1,5 @@
 from typing import List
+import calendar
 import pandas as pd
 from .models import (
     Summary,
@@ -7,6 +8,7 @@ from .models import (
     ChartData,
     UserProfileUpdate,
     AnalysisResult,
+    Forecast,
 )
 
 
@@ -140,6 +142,44 @@ def generate_insights(
     return insights
 
 
+def compute_month_pacing_forecast(df: pd.DataFrame, target_spend_limit: float) -> Forecast:
+    # Use CSV date range as the observed period
+    start_date = df["date"].min().date()
+    end_date = df["date"].max().date()
+
+    elapsed_days = (end_date - start_date).days + 1
+    if elapsed_days <= 0:
+        elapsed_days = 1
+
+    # Month length based on end_date month
+    days_in_month = calendar.monthrange(end_date.year, end_date.month)[1]
+
+    # Spending so far = abs(total expenses in the period)
+    spent_so_far = float(abs(df[df["amount"] < 0]["amount"].sum()))
+
+    # Projected month-end spend (simple linear pacing)
+    projected_month_end_spend = (spent_so_far / elapsed_days) * days_in_month
+
+    # Remaining days in the month from end_date
+    remaining_days = max(days_in_month - end_date.day, 0)
+
+    # Recommended spend/day to stay under target
+    remaining_budget = max(target_spend_limit - spent_so_far, 0.0)
+    recommended_spend_per_day = (remaining_budget / remaining_days) if remaining_days > 0 else 0.0
+
+    return Forecast(
+        period_start=start_date.isoformat(),
+        period_end=end_date.isoformat(),
+        elapsed_days=int(elapsed_days),
+        days_in_month=int(days_in_month),
+        spent_so_far=float(round(spent_so_far, 2)),
+        projected_month_end_spend=float(round(projected_month_end_spend, 2)),
+        target_spend_limit=float(round(target_spend_limit, 2)),
+        remaining_days=int(remaining_days),
+        recommended_spend_per_day=float(round(recommended_spend_per_day, 2)),
+    )
+
+
 def analyze_dataframe(df: pd.DataFrame) -> AnalysisResult:
     summary = compute_basic_stats(df)
     categories = compute_category_breakdown(df)
@@ -147,6 +187,24 @@ def analyze_dataframe(df: pd.DataFrame) -> AnalysisResult:
     chart = compute_chart_data(categories)
     user_profile = infer_user_profile(df, summary)
     insights = generate_insights(summary, categories, user_profile)
+    # Use detected monthly income as the target limit for forecasting
+    target_limit = float(user_profile.monthlyIncome)
+    forecast = compute_month_pacing_forecast(df, target_limit)
+
+    # Append actionable forecast insights
+    insights.append(
+        f"You've spent €{forecast.spent_so_far:.2f} across {summary.n_transactions} transactions over {forecast.elapsed_days} days. "
+        f"At this pace, projected month-end expenses ≈ €{forecast.projected_month_end_spend:.2f}."
+    )
+
+    if forecast.remaining_days > 0:
+        insights.append(
+            f"To stay under €{forecast.target_spend_limit:.2f} in expenses, aim for ≤ €{forecast.recommended_spend_per_day:.2f}/day for the remaining {forecast.remaining_days} days."
+        )
+    else:
+        insights.append(
+            "No remaining days in the detected month window, so a daily target can't be computed."
+        )
 
     return AnalysisResult(
         summary=summary,
@@ -155,4 +213,5 @@ def analyze_dataframe(df: pd.DataFrame) -> AnalysisResult:
         chart=chart,
         user_profile=user_profile,
         insights=insights,
+        forecast=forecast,
     )
