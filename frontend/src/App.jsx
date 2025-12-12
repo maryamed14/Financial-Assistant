@@ -30,6 +30,8 @@ const FinancialAssistant = () => {
   });
   const [showInsights, setShowInsights] = useState(false);
   const [uploadedFile, setUploadedFile] = useState(null);
+  const [availableMonths, setAvailableMonths] = useState([]);
+  const [selectedMonth, setSelectedMonth] = useState('');
 
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -172,6 +174,10 @@ const FinancialAssistant = () => {
 
       const data = await res.json();
 
+      // Store available months and selected month from response
+      setAvailableMonths(data.available_months || []);
+      setSelectedMonth(data.selected_month || '');
+
       // 1) Show insights in chat
       addMessage(
         'ai',
@@ -208,6 +214,74 @@ const FinancialAssistant = () => {
     } finally {
       setIsTyping(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  // === RE-ANALYZE FOR DIFFERENT MONTH ===
+  const analyzeFileForMonth = async (file, month) => {
+    if (!file || !month) return;
+
+    setIsTyping(true);
+    setMessages([]);
+    addMessage('ai', `Loading data for ${month}...`, 'text');
+
+    try {
+      const formData = new FormData();
+      formData.append('statement', file);
+
+      const res = await fetch(`${API_URL}?month=${month}`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!res.ok) {
+        let msg = 'Error analyzing statement for this month.';
+        try {
+          const body = await res.json();
+          if (body.detail) msg = body.detail;
+        } catch (_) {}
+        addMessage('ai', msg, 'text');
+        return;
+      }
+
+      const data = await res.json();
+      setSelectedMonth(data.selected_month || month);
+
+      // Show insights
+      addMessage(
+        'ai',
+        `I've analyzed your statement for ${month}. Here are the insights:`,
+        'text'
+      );
+      (data.insights || []).forEach((insight) => {
+        addMessage('ai', insight, 'text');
+      });
+
+      // Show spending chart
+      if (data.chart) {
+        addMessage('ai', 'Spending breakdown for this month:', 'text');
+        addMessage('ai', 'spending-chart', 'chart', {
+          categories: data.chart.categories,
+          amounts: data.chart.amounts,
+        });
+      }
+
+      // Update right-side insights panel
+      if (data.user_profile) {
+        setUserProfile((prev) => ({
+          ...prev,
+          ...data.user_profile,
+        }));
+      }
+    } catch (err) {
+      console.error(err);
+      addMessage(
+        'ai',
+        'Something went wrong while loading this month.',
+        'text'
+      );
+    } finally {
+      setIsTyping(false);
     }
   };
 
@@ -388,6 +462,30 @@ const FinancialAssistant = () => {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Month selector dropdown */}
+            {availableMonths.length > 0 && (
+              <select
+                value={selectedMonth}
+                onChange={(e) => {
+                  const newMonth = e.target.value;
+                  setSelectedMonth(newMonth);
+                  if (uploadedFile) {
+                    analyzeFileForMonth(uploadedFile, newMonth);
+                  }
+                }}
+                className="hidden sm:block px-3 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50 transition-colors"
+              >
+                {availableMonths.map((month) => (
+                  <option key={month} value={month}>
+                    {new Date(month + '-01').toLocaleDateString('en-US', {
+                      year: 'numeric',
+                      month: 'long',
+                    })}
+                  </option>
+                ))}
+              </select>
+            )}
+
             {/* + button to upload CSV */}
             <button
               onClick={() => fileInputRef.current && fileInputRef.current.click()}

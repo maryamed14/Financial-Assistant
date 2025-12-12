@@ -1,4 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
+from typing import Optional
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 import time
@@ -36,7 +37,10 @@ async def health():
 
 
 @app.post("/api/analyze-statement", response_model=AnalysisResult)
-async def analyze_statement(statement: UploadFile = File(...)):
+async def analyze_statement(
+    statement: UploadFile = File(...),
+    month: Optional[str] = None,
+):
     """
     Accept a CSV bank statement, analyze it and return structured insights.
     """
@@ -63,7 +67,22 @@ async def analyze_statement(statement: UploadFile = File(...)):
         )
 
         df = parse_statement_csv(file_bytes)
-        analysis = analyze_dataframe(df)
+
+        available_months = (
+            df["date"].dt.to_period("M").astype(str).sort_values().unique().tolist()
+        )
+
+        if month:
+            if month not in available_months:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid month '{month}'. Available months: {available_months}",
+                )
+
+        analysis = analyze_dataframe(df, month=month)
+        # Ensure response includes available months and selected month
+        analysis.available_months = available_months
+        analysis.selected_month = month or (available_months[-1] if available_months else None)
 
         duration_ms = (time.perf_counter() - start) * 1000
         logger.info(

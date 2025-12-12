@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 from pydantic import BaseModel
 
 
@@ -57,3 +57,5 @@ class AnalysisResult(BaseModel):
     user_profile: UserProfileUpdate
     insights: List[str]
     forecast: Forecast
+    available_months: List[str] = []
+    selected_month: Optional[str] = None

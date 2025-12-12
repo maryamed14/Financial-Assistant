@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 import calendar
 import pandas as pd
 from .models import (
@@ -143,19 +143,35 @@ def generate_insights(
 
 
 def compute_month_pacing_forecast(df: pd.DataFrame, target_spend_limit: float) -> Forecast:
-    # Use CSV date range as the observed period
-    start_date = df["date"].min().date()
+    # Compute pacing only for transactions in the calendar month of the latest transaction.
+    # This avoids mixing multiple months and gives a realistic per-month pacing.
     end_date = df["date"].max().date()
 
-    elapsed_days = (end_date - start_date).days + 1
+    # Filter dataframe to rows in the same month/year as end_date
+    month_mask = (df["date"].dt.year == end_date.year) & (df["date"].dt.month == end_date.month)
+    month_df = df.loc[month_mask].copy()
+
+    # Fallbacks if filtering unexpectedly yields no rows (defensive)
+    if month_df.empty:
+        # Try filtering by month only
+        month_df = df.loc[df["date"].dt.month == end_date.month].copy()
+    if month_df.empty:
+        # As a last resort, use rows on the end_date
+        month_df = df.loc[df["date"].dt.date == end_date].copy()
+
+    # start_date is the first transaction in that month
+    start_date = month_df["date"].min().date()
+
+    # elapsed_days is day-of-month of end_date (how many days have passed in this month)
+    elapsed_days = end_date.day
     if elapsed_days <= 0:
         elapsed_days = 1
 
     # Month length based on end_date month
     days_in_month = calendar.monthrange(end_date.year, end_date.month)[1]
 
-    # Spending so far = abs(total expenses in the period)
-    spent_so_far = float(abs(df[df["amount"] < 0]["amount"].sum()))
+    # Spending so far = abs(total expenses in the filtered month period)
+    spent_so_far = float(abs(month_df[month_df["amount"] < 0]["amount"].sum()))
 
     # Projected month-end spend (simple linear pacing)
     projected_month_end_spend = (spent_so_far / elapsed_days) * days_in_month
@@ -180,16 +196,38 @@ def compute_month_pacing_forecast(df: pd.DataFrame, target_spend_limit: float) -
     )
 
 
-def analyze_dataframe(df: pd.DataFrame) -> AnalysisResult:
-    summary = compute_basic_stats(df)
-    categories = compute_category_breakdown(df)
-    top_expenses = compute_top_expenses(df)
+def analyze_dataframe(df: pd.DataFrame, month: Optional[str] = None) -> AnalysisResult:
+    # Preserve full dataframe for available_months computation
+    full_df = df.copy()
+
+    # default to latest month if not provided
+    if month is None:
+        month = full_df["date"].dt.to_period("M").astype(str).max()
+
+    year, m = month.split("-")
+    year = int(year)
+    m = int(m)
+
+    # Work on a dedicated dataframe for analysis
+    df_used = df.copy()
+
+    # filter df_used to the selected calendar month
+    df_used = df_used[(df_used["date"].dt.year == year) & (df_used["date"].dt.month == m)].copy()
+
+    # If filtered df_used is empty, fall back to full dataframe
+    if df_used.empty:
+        df_used = full_df.copy()
+
+    summary = compute_basic_stats(df_used)
+    categories = compute_category_breakdown(df_used)
+    top_expenses = compute_top_expenses(df_used)
     chart = compute_chart_data(categories)
-    user_profile = infer_user_profile(df, summary)
+    user_profile = infer_user_profile(df_used, summary)
     insights = generate_insights(summary, categories, user_profile)
+
     # Use detected monthly income as the target limit for forecasting
     target_limit = float(user_profile.monthlyIncome)
-    forecast = compute_month_pacing_forecast(df, target_limit)
+    forecast = compute_month_pacing_forecast(df_used, target_limit)
 
     # Append actionable forecast insights
     insights.append(
@@ -206,6 +244,11 @@ def analyze_dataframe(df: pd.DataFrame) -> AnalysisResult:
             "No remaining days in the detected month window, so a daily target can't be computed."
         )
 
+    # Compute available months from the original full dataframe
+    available_months = (
+        full_df["date"].dt.to_period("M").astype(str).sort_values().unique().tolist()
+    )
+
     return AnalysisResult(
         summary=summary,
         categories=categories,
@@ -214,4 +257,6 @@ def analyze_dataframe(df: pd.DataFrame) -> AnalysisResult:
         user_profile=user_profile,
         insights=insights,
         forecast=forecast,
+        available_months=available_months,
+        selected_month=month,
     )
