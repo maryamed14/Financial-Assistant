@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: Financial-Assistant/backend
+        working-directory: backend
 
     strategy:
       matrix:
