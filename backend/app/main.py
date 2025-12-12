@@ -8,6 +8,9 @@ from .analyzer import analyze_dataframe
 from .models import AnalysisResult
 
 
+MAX_UPLOAD_BYTES = 2 * 1024 * 1024  # 2 MB (adjust later)
+
+
 app = FastAPI(title="Financial Assistant Backend")
 
 # Logger setup
@@ -46,6 +49,12 @@ async def analyze_statement(statement: UploadFile = File(...)):
     try:
         file_bytes = await statement.read()
 
+        if len(file_bytes) > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large. Max allowed is {MAX_UPLOAD_BYTES} bytes."
+            )
+
         logger.info(
             "upload_received filename=%s content_type=%s size_bytes=%d",
             filename,
@@ -64,6 +73,9 @@ async def analyze_statement(statement: UploadFile = File(...)):
             len(df),
         )
 
+    except HTTPException:
+        # Don't convert deliberate HTTP errors (like 413) into 500s
+        raise
     except ValueError as e:
         duration_ms = (time.perf_counter() - start) * 1000
         logger.warning(
