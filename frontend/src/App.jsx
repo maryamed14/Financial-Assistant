@@ -32,6 +32,7 @@ const FinancialAssistant = () => {
   const [uploadedFile, setUploadedFile] = useState(null);
   const [availableMonths, setAvailableMonths] = useState([]);
   const [selectedMonth, setSelectedMonth] = useState('');
+  const [analysisData, setAnalysisData] = useState(null);
 
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -91,6 +92,32 @@ const FinancialAssistant = () => {
     await new Promise((resolve) => setTimeout(resolve, 800));
 
     const lowerMessage = userMessage.toLowerCase();
+
+    // Handle context-aware "yes" responses
+    if (
+      lowerMessage === 'yes' &&
+      messages[messages.length - 1]?.text?.includes('break this down by category')
+    ) {
+      if (analysisData?.budget_plan) {
+        addMessage(
+          'ai',
+          `Here's a suggested budget for the rest of the month. You have ${analysisData.budget_plan.remaining_budget} EUR over ${analysisData.budget_plan.remaining_days} days.`,
+          'text'
+        );
+
+        analysisData.budget_plan.categories.forEach((c) => {
+          addMessage(
+            'ai',
+            `• ${c.category}: ${c.allocated_amount} EUR total (≈ ${c.recommended_daily_spend} EUR/day)`,
+            'text'
+          );
+        });
+      } else {
+        addMessage('ai', 'I need your statement data to build a budget plan.', 'text');
+      }
+      setIsTyping(false);
+      return;
+    }
 
     if (lowerMessage.includes('savings') || lowerMessage.includes('goal')) {
       for (const line of conversationFlows.savingsProgress) {
@@ -174,6 +201,9 @@ const FinancialAssistant = () => {
 
       const data = await res.json();
 
+      // Store full analysis data for use in simulateAIResponse
+      setAnalysisData(data);
+
       // Store available months and selected month from response
       setAvailableMonths(data.available_months || []);
       setSelectedMonth(data.selected_month || '');
@@ -245,6 +275,9 @@ const FinancialAssistant = () => {
       }
 
       const data = await res.json();
+      
+      // Store full analysis data for use in simulateAIResponse
+      setAnalysisData(data);
       setSelectedMonth(data.selected_month || month);
 
       // Show insights

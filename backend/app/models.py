@@ -49,6 +49,18 @@ class Forecast(BaseModel):
     recommended_spend_per_day: float
 
 
+class BudgetCategory(BaseModel):
+    category: str
+    allocated_amount: float
+    recommended_daily_spend: float
+
+
+class BudgetPlan(BaseModel):
+    remaining_budget: float
+    remaining_days: int
+    categories: List[BudgetCategory]
+
+
 class AnalysisResult(BaseModel):
     summary: Summary
     categories: List[CategoryItem]
@@ -59,3 +71,4 @@ class AnalysisResult(BaseModel):
     forecast: Forecast
     available_months: List[str] = []
     selected_month: Optional[str] = None
+    budget_plan: Optional[BudgetPlan] = None
