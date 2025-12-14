@@ -38,19 +38,27 @@ def parse_statement_csv(file_bytes: bytes) -> pd.DataFrame:
 
     # We expect at least these columns:
     expected_cols = {"Date", "Concept", "Amount"}
-    if not expected_cols.issubset(df_raw.columns):
-        raise ValueError(f"Unexpected CSV structure. Found columns: {list(df_raw.columns)}")
+    missing = expected_cols - set(df_raw.columns)
+    if missing:
+        raise ValueError(
+            "CSV missing required columns: "
+            + ", ".join(sorted(missing))
+            + f". Found columns: {list(df_raw.columns)}"
+        )
 
     df = df_raw.copy()
 
     # 2) Amount: from "-10.0 EUR" -> -10.0
-    df["amount"] = (
-        df["Amount"]
-        .astype(str)
-        .str.replace(" EUR", "", regex=False)
-        .str.replace(",", "", regex=False)
-        .astype(float)
-    )
+    try:
+        df["amount"] = (
+            df["Amount"]
+            .astype(str)
+            .str.replace(" EUR", "", regex=False)
+            .str.replace(",", "", regex=False)
+            .astype(float)
+        )
+    except Exception:
+        raise ValueError("Could not parse 'Amount' column. Expected values like '-10.0 EUR'.")
 
     # 3) Date: prefer "Operation date" (ISO) if available
     if "Operation date" in df.columns:

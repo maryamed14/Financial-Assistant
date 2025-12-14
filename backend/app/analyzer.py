@@ -9,6 +9,8 @@ from .models import (
     UserProfileUpdate,
     AnalysisResult,
     Forecast,
+    BudgetPlan,
+    BudgetCategory,
 )
 
 
@@ -196,6 +198,68 @@ def compute_month_pacing_forecast(df: pd.DataFrame, target_spend_limit: float) -
     )
 
 
+def compute_budget_plan(
+    df: pd.DataFrame,
+    monthly_income: float,
+    days_in_month: int,
+    current_day: int,
+) -> Optional[BudgetPlan]:
+    """
+    Compute a budget plan with allocated amounts and recommended daily spend per category.
+    
+    Args:
+        df: DataFrame with transactions (filtered to current month)
+        monthly_income: Total monthly income/budget
+        days_in_month: Total days in the month
+        current_day: Current day of the month (1-31)
+    
+    Returns:
+        BudgetPlan with remaining budget and category recommendations, or None if no expenses
+    """
+    # Calculate remaining days and budget
+    remaining_days = max(days_in_month - current_day, 0)
+    
+    # Group spending by category
+    expenses = df[df["amount"] < 0].copy()
+    if expenses.empty:
+        return None
+    
+    # Total spent so far
+    total_spent = abs(expenses["amount"].sum())
+    remaining_budget = max(monthly_income - total_spent, 0.0)
+    
+    # Group by category and calculate allocated amounts
+    if "category" not in expenses.columns:
+        expenses["category"] = "Uncategorized"
+    
+    category_spending = expenses.groupby("category")["amount"].sum()
+    total_category_spent = abs(category_spending.sum()) or 1.0
+    
+    # Build budget categories with recommended daily spend
+    budget_categories: List[BudgetCategory] = []
+    
+    for category, spent in category_spending.items():
+        spent_abs = abs(spent)
+        # Allocate budget proportionally to current spending
+        allocated_amount = (spent_abs / total_category_spent) * monthly_income
+        # Recommended daily spend for remaining days
+        recommended_daily = (allocated_amount - spent_abs) / remaining_days if remaining_days > 0 else 0.0
+        
+        budget_categories.append(
+            BudgetCategory(
+                category=category,
+                allocated_amount=round(allocated_amount, 2),
+                recommended_daily_spend=round(max(recommended_daily, 0.0), 2),
+            )
+        )
+    
+    return BudgetPlan(
+        remaining_budget=round(remaining_budget, 2),
+        remaining_days=remaining_days,
+        categories=budget_categories,
+    )
+
+
 def analyze_dataframe(df: pd.DataFrame, month: Optional[str] = None) -> AnalysisResult:
     # Preserve full dataframe for available_months computation
     full_df = df.copy()
@@ -229,6 +293,15 @@ def analyze_dataframe(df: pd.DataFrame, month: Optional[str] = None) -> Analysis
     target_limit = float(user_profile.monthlyIncome)
     forecast = compute_month_pacing_forecast(df_used, target_limit)
 
+    # Compute budget plan
+    current_day = int(forecast.period_end.split("-")[-1])
+    budget_plan = compute_budget_plan(
+        df_used,
+        monthly_income=user_profile.monthlyIncome,
+        days_in_month=forecast.days_in_month,
+        current_day=current_day,
+    )
+
     # Append actionable forecast insights
     insights.append(
         f"You've spent €{forecast.spent_so_far:.2f} across {summary.n_transactions} transactions over {forecast.elapsed_days} days. "
@@ -257,6 +330,7 @@ def analyze_dataframe(df: pd.DataFrame, month: Optional[str] = None) -> Analysis
         user_profile=user_profile,
         insights=insights,
         forecast=forecast,
+        budget_plan=budget_plan,
         available_months=available_months,
         selected_month=month,
     )
